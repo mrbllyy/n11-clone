@@ -1,0 +1,7 @@
+services:
+  web:
+    build: . # Points to the Dockerfile in the current directory
+    ports:
+      - "8000:8000"
+  db:
+    image: postgres:15 # Uses a pre-built image from Docker Hub
