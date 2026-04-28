@@ -1,7 +1,206 @@
 services:
-  web:
-    build: . # Points to the Dockerfile in the current directory
+  # --- Infrastructure ---
+  config-server:
+    image: n11-clone/config-server:latest
+    container_name: config-server
     ports:
-      - "8000:8000"
-  db:
-    image: postgres:15 # Uses a pre-built image from Docker Hub
+      - "8762:8762"
+    environment:
+      - SPRING_PROFILES_ACTIVE=native
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8762/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - n11-network
+
+  discovery-server:
+    image: n11-clone/discovery-server:latest
+    container_name: discovery-server
+    ports:
+      - "8761:8761"
+    environment:
+      - CONFIG_URI=http://config-server:8762
+    depends_on:
+      config-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8761/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - n11-network
+
+  api-gateway:
+    image: n11-clone/api-gateway:latest
+    container_name: api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - CONFIG_URI=http://config-server:8762
+      - EUREKA_URI=http://discovery-server:8761/eureka
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+    networks:
+      - n11-network
+
+  # --- Databases ---
+  user-db:
+    image: postgres:latest
+    container_name: user-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234
+      POSTGRES_DB: user-db
+    ports:
+      - "5434:5432"
+    volumes:
+      - user_db_data:/var/lib/postgresql
+    networks:
+      - n11-network
+
+  product-db:
+    image: postgres:latest
+    container_name: product-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234
+      POSTGRES_DB: product-db
+    ports:
+      - "5435:5432"
+    volumes:
+      - product_db_data:/var/lib/postgresql
+    networks:
+      - n11-network
+
+  cart-db:
+    image: postgres:latest
+    container_name: cart-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234
+      POSTGRES_DB: cart-db
+    ports:
+      - "5436:5432"
+    volumes:
+      - cart_db_data:/var/lib/postgresql
+    networks:
+      - n11-network
+
+  order-db:
+    image: postgres:latest
+    container_name: order-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234
+      POSTGRES_DB: order-db
+    ports:
+      - "5437:5432"
+    volumes:
+      - order_db_data:/var/lib/postgresql
+    networks:
+      - n11-network
+
+  stock-db:
+    image: postgres:latest
+    container_name: stock-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234
+      POSTGRES_DB: n11bootcamp
+    ports:
+      - "5438:5432"
+    volumes:
+      - stock_db_data:/var/lib/postgresql
+    networks:
+      - n11-network
+
+  # --- Business Services ---
+  user-service:
+    image: n11-clone/user-service:latest
+    container_name: user-service
+    environment:
+      - CONFIG_URI=http://config-server:8762
+      - EUREKA_URI=http://discovery-server:8761/eureka
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://user-db:5432/user-db
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+      user-db:
+        condition: service_started
+    networks:
+      - n11-network
+
+  product-service:
+    image: n11-clone/product-service:latest
+    container_name: product-service
+    environment:
+      - CONFIG_URI=http://config-server:8762
+      - EUREKA_URI=http://discovery-server:8761/eureka
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://product-db:5432/product-db
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+      product-db:
+        condition: service_started
+    networks:
+      - n11-network
+
+  shopping-cart-service:
+    image: n11-clone/shopping-cart-service:latest
+    container_name: shopping-cart-service
+    environment:
+      - CONFIG_URI=http://config-server:8762
+      - EUREKA_URI=http://discovery-server:8761/eureka
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://cart-db:5432/cart-db
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+      cart-db:
+        condition: service_started
+    networks:
+      - n11-network
+
+  order-service:
+    image: n11-clone/order-service:latest
+    container_name: order-service
+    environment:
+      - CONFIG_URI=http://config-server:8762
+      - EUREKA_URI=http://discovery-server:8761/eureka
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://order-db:5432/order-db
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+      order-db:
+        condition: service_started
+    networks:
+      - n11-network
+
+  stock-service:
+    image: n11-clone/stock-service:latest
+    container_name: stock-service
+    environment:
+      - CONFIG_URI=http://config-server:8762
+      - EUREKA_URI=http://discovery-server:8761/eureka
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://stock-db:5432/n11bootcamp
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+      stock-db:
+        condition: service_started
+    networks:
+      - n11-network
+
+volumes:
+  user_db_data:
+  product_db_data:
+  cart_db_data:
+  order_db_data:
+  stock_db_data:
+
+networks:
+  n11-network:
+    driver: bridge

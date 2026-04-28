@@ -1,0 +1,1 @@
+for dir in config-server discovery-server api-gateway user-service product-service shopping-cart-service order-service stock-service; do (cd $dir && mvn clean compile jib:dockerBuild -DskipTests); done
