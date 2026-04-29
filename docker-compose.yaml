@@ -37,13 +37,27 @@ services:
     image: n11-clone/api-gateway:latest
     container_name: api-gateway
     ports:
-      - "8080:8080"
+      - "8763:8763"
     environment:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
     depends_on:
       discovery-server:
         condition: service_healthy
+    networks:
+      - n11-network
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - n11-network
 
@@ -171,11 +185,14 @@ services:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
       - SPRING_DATASOURCE_URL=jdbc:postgresql://order-db:5432/order-db
+      - RABBIT_HOST=rabbitmq
     depends_on:
       discovery-server:
         condition: service_healthy
       order-db:
         condition: service_started
+      rabbitmq:
+        condition: service_healthy
     networks:
       - n11-network
 
@@ -186,11 +203,14 @@ services:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
       - SPRING_DATASOURCE_URL=jdbc:postgresql://stock-db:5432/n11bootcamp
+      - RABBIT_HOST=rabbitmq
     depends_on:
       discovery-server:
         condition: service_healthy
       stock-db:
         condition: service_started
+      rabbitmq:
+        condition: service_healthy
     networks:
       - n11-network
 
