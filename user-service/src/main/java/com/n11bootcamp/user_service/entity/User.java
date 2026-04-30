@@ -6,7 +6,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 @Entity
-@Table(name = "userservice_users", uniqueConstraints = { @UniqueConstraint(columnNames = "username"),
+@Table(name = "users", uniqueConstraints = { @UniqueConstraint(columnNames = "username"),
         @UniqueConstraint(columnNames = "email") })
 public class User {
     @Id
@@ -33,13 +33,12 @@ public class User {
     public User() {
     }
 
-    public User(String username, String email, String password,String role) {
+    public User(String username, String email, String password, String role) {
         this.username = username;
         this.email = email;
         this.password = password;
         this.role = role;
     }
-
 
     public User(String username, String email, String password) {
         this.username = username;

@@ -11,7 +11,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class TokenManager {
 
-    private static final int validity = 1 * 60 * 1000;
+    private static final int validity = 100 * 60 * 1000;
     Key key = Keys.secretKeyFor(SignatureAlgorithm.HS256);
 
     public String generateToken(String username) {

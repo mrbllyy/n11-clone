@@ -13,26 +13,31 @@ import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
 
+import org.springframework.web.client.RestTemplate;
+
 @Service
 public class UserDetailsService implements org.springframework.security.core.userdetails.UserDetailsService {
 
-    private Map<String, String> users = new HashMap<>();
-
     @Autowired
-    private BCryptPasswordEncoder passwordEncoder;
-
-    @PostConstruct
-    public void init() {
-        users.put("omerbyay", passwordEncoder.encode("1234"));
-    }
+    private RestTemplate restTemplate;
 
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+        try {
+            // USER-SERVICE üzerinden kullanıcıyı sorgula
+            Map user = restTemplate.getForObject("http://USER-SERVICE/api/user/internal/" + username, Map.class);
 
-        if (users.containsKey(username)) {
-            return new User(username, users.get(username), new ArrayList<>());
+            if (user != null && user.containsKey("username") && user.containsKey("password")) {
+                return new User(
+                        (String) user.get("username"),
+                        (String) user.get("password"),
+                        new ArrayList<>()
+                );
+            }
+        } catch (Exception e) {
+            System.err.println("Error fetching user: " + e.getMessage());
         }
 
-        throw new UsernameNotFoundException(username);
+        throw new UsernameNotFoundException("User not found: " + username);
     }
 }

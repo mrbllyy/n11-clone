@@ -13,7 +13,7 @@ public class RefreshTokenService {
     private final Map<String, RefreshToken> refreshTokenMap = new HashMap<>();
 
     // Refresh token validity: 100 minutes
-    private static final long REFRESH_TOKEN_VALIDITY_MS = 100 * 60 * 1000;
+    private static final long REFRESH_TOKEN_VALIDITY_MS = 200 * 60 * 1000;
 
     public String createRefreshToken(String username) {
         // Delete existing tokens for this user if any (optional, for simple rotation)

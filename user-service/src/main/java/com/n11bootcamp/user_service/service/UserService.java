@@ -48,10 +48,16 @@ public class UserService {
 
     @Autowired
     private RestTemplate restTemplate;
-    // ?? Di�er microservice�lerle haberle�mek i�in (ShoppingCartService vs.)
+    // ?? Dier microservicelerle haberlemek iin (ShoppingCartService vs.)
+
+    public ResponseEntity<?> findByUsername(String username) {
+        return userRepository.findByUsername(username)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
 
     /**
-     * ?? Kullan�c� giri�ini do�rular, Identity Provider�dan JWT al�r.
+     * ?? Kullanc giriini dorular, Identity Providerdan JWT alr.
      */
     public ResponseEntity<?> authenticateUser(LoginRequest loginRequest) {
         User user;

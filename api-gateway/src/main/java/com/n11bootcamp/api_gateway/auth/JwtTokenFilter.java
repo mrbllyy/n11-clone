@@ -2,6 +2,10 @@ package com.n11bootcamp.api_gateway.auth;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.List;
+import jakarta.servlet.http.HttpServletRequestWrapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -49,6 +53,35 @@ public class JwtTokenFilter extends OncePerRequestFilter {
                         new ArrayList<>());
                 upassToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(httpServletRequest));
                 SecurityContextHolder.getContext().setAuthentication(upassToken);
+
+                final String finalUsername = username;
+                HttpServletRequestWrapper wrapper = new HttpServletRequestWrapper(httpServletRequest) {
+                    @Override
+                    public String getHeader(String name) {
+                        if ("X-User-Name".equalsIgnoreCase(name)) {
+                            return finalUsername;
+                        }
+                        return super.getHeader(name);
+                    }
+
+                    @Override
+                    public Enumeration<String> getHeaders(String name) {
+                        if ("X-User-Name".equalsIgnoreCase(name)) {
+                            return Collections.enumeration(Collections.singletonList(finalUsername));
+                        }
+                        return super.getHeaders(name);
+                    }
+
+                    @Override
+                    public Enumeration<String> getHeaderNames() {
+                        List<String> names = Collections.list(super.getHeaderNames());
+                        names.add("X-User-Name");
+                        return Collections.enumeration(names);
+                    }
+                };
+                
+                filterChain.doFilter(wrapper, httpServletResponse);
+                return;
             }
         }
 

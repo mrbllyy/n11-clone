@@ -20,21 +20,25 @@ import org.springframework.web.bind.annotation.RestController;
 
 
 
+import org.springframework.web.bind.annotation.GetMapping;
+
 @RestController
-@CrossOrigin
 @RequestMapping("/api/user")
 public class UserController {
 
     @Autowired
     UserService userService;
-    @CrossOrigin
+
+    @GetMapping("/internal/{username}")
+    public ResponseEntity<?> findByUsername(@PathVariable String username) {
+        return userService.findByUsername(username);
+    }
     @PostMapping("/signin")
 
     public ResponseEntity<?> authenticateUser(@Valid @RequestBody LoginRequest loginRequest) {
         return userService.authenticateUser(loginRequest);
     }
 
-    @CrossOrigin
     @PostMapping("/signup")
 
     public ResponseEntity<?> registerUser(@Valid @RequestBody SignupRequest signUpRequest) {

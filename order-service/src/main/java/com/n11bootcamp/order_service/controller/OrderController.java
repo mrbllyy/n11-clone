@@ -10,8 +10,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/orders")
-@CrossOrigin(origins = {"http://localhost:3000", "http://85.159.71.66:3000","http://94.73.134.50:3000",
-        "http://localhost:8081/", "http://85.159.71.66:8081/,http://94.73.134.50:8081/"})
 public class OrderController {
 
     private final OrderServiceImpl orderServiceImpl;
@@ -20,8 +18,22 @@ public class OrderController {
     }
 
     @PostMapping
-    public OrderResponse createOrder(@RequestBody CreateOrderRequest request) {
+    public OrderResponse createOrder(@RequestHeader(value = "X-User-Name", required = false) String username,
+                                     @RequestBody CreateOrderRequest request) {
+        // Gateway'den gelen güvenilir kullanıcı adını ezerek güvenlik sağlar
+        if (username != null) {
+            request.setUsername(username);
+        }
         return orderServiceImpl.createOrder(request);
+    }
+
+    // api/orders çağrıldığında kullanıcının kendi siparişlerini döner
+    @GetMapping
+    public List<OrderResponse> getMyOrders(@RequestHeader(value = "X-User-Name", required = false) String username) {
+        if (username == null) {
+            throw new RuntimeException("Yetkisiz erişim: Kullanıcı bilgisi bulunamadı");
+        }
+        return orderServiceImpl.findOrdersByUsername(username);
     }
 
     @GetMapping("/all")

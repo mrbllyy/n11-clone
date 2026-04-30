@@ -10,7 +10,6 @@ import org.springframework.web.bind.annotation.CrossOrigin;
 @SpringBootApplication
 @EnableDiscoveryClient   // Eureka client olarak kaydolmak için
 @EnableRabbit            // RabbitMQ listener kullanmak için
-@CrossOrigin
 @EnableFeignClients
 public class StockServiceApplication {
 

@@ -18,10 +18,6 @@ import java.util.Map;
 import java.util.UUID;
 
 @RestController
-@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:8081/", "http://localhost:4200",
-        "http://85.159.71.66:8081/", "http://85.159.71.66:3000",
-        "http://94.73.134.50:4200/", "http://94.73.134.50:4200",
-        "http://94.73.134.50:8081/", "http://94.73.134.50:3000"})
 @RequestMapping("api/product")
 
 public class ProductController {

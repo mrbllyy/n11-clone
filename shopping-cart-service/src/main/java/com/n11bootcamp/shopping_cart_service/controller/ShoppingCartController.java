@@ -12,7 +12,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@CrossOrigin(origins = {"http://localhost:3000", "http://85.159.71.66:3000", "http://94.73.134.50:3000"})
 @RequestMapping("api/shopping-cart")
 public class ShoppingCartController  {
 
