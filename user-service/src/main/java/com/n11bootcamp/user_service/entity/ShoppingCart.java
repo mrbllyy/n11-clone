@@ -1,17 +1,12 @@
 package com.n11bootcamp.user_service.entity;
 
-import java.util.Set;
-
-import jakarta.persistence.Id;
-import jakarta.persistence.ManyToMany;
-
+/**
+ * DTO — Shopping Cart Service'ten gelen JSON'u deserialize etmek için kullanılır.
+ * Bu class JPA entity DEĞİLDİR, user-db'de tablo oluşturmaz.
+ */
 public class ShoppingCart {
-    @Id
     private long id;
     private String shoppingCartName;
-
-    @ManyToMany(mappedBy = "products")
-    private Set<ShoppingCart> shoppingCarts;
 
     public long getId() {
         return id;

@@ -72,7 +72,7 @@ services:
     ports:
       - "5434:5432"
     volumes:
-      - user_db_data:/var/lib/postgresql
+      - user_db_data:/var/lib/postgresql/data
     networks:
       - n11-network
 
@@ -86,7 +86,7 @@ services:
     ports:
       - "5435:5432"
     volumes:
-      - product_db_data:/var/lib/postgresql
+      - product_db_data:/var/lib/postgresql/data
     networks:
       - n11-network
 
@@ -100,7 +100,7 @@ services:
     ports:
       - "5436:5432"
     volumes:
-      - cart_db_data:/var/lib/postgresql
+      - cart_db_data:/var/lib/postgresql/data
     networks:
       - n11-network
 
@@ -114,7 +114,7 @@ services:
     ports:
       - "5437:5432"
     volumes:
-      - order_db_data:/var/lib/postgresql
+      - order_db_data:/var/lib/postgresql/data
     networks:
       - n11-network
 
@@ -128,7 +128,7 @@ services:
     ports:
       - "5438:5432"
     volumes:
-      - stock_db_data:/var/lib/postgresql
+      - stock_db_data:/var/lib/postgresql/data
     networks:
       - n11-network
 
@@ -136,6 +136,8 @@ services:
   user-service:
     image: n11-clone/user-service:latest
     container_name: user-service
+    ports:
+      - "8766:8766"
     environment:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
@@ -151,6 +153,8 @@ services:
   product-service:
     image: n11-clone/product-service:latest
     container_name: product-service
+    ports:
+      - "8764:8764"
     environment:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
@@ -166,6 +170,8 @@ services:
   shopping-cart-service:
     image: n11-clone/shopping-cart-service:latest
     container_name: shopping-cart-service
+    ports:
+      - "8765:8765"
     environment:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
@@ -181,6 +187,8 @@ services:
   order-service:
     image: n11-clone/order-service:latest
     container_name: order-service
+    ports:
+      - "8767:8767"
     environment:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
@@ -199,6 +207,8 @@ services:
   stock-service:
     image: n11-clone/stock-service:latest
     container_name: stock-service
+    ports:
+      - "8769:8769"
     environment:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
