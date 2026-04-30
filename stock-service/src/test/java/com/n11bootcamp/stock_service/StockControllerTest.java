@@ -45,7 +45,7 @@ public class StockControllerTest {
     public void testGetAllStocks() throws Exception {
         ProductStock stock = new ProductStock();
         stock.setProductId(1L);
-        stock.setQuantity(100);
+        stock.setAvailableQuantity(100);
 
         Mockito.when(productStockRepository.findAll())
                 .thenReturn(Collections.singletonList(stock));
@@ -55,7 +55,7 @@ public class StockControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].productId").value(1L))
-                .andExpect(jsonPath("$[0].quantity").value(100));
+                .andExpect(jsonPath("$[0].availableQuantity").value(100));
     }
 
     @Test

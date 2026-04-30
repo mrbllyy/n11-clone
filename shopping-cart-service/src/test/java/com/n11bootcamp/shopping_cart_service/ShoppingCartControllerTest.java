@@ -63,7 +63,7 @@ public class ShoppingCartControllerTest {
         ShoppingCart cart = new ShoppingCart();
         cart.setId(1L);
         cart.setShoppingCartName("TestCart");
-        cart.setProducts(Collections.singletonList(p1));
+        cart.setProducts(Collections.singleton(p1));
 
         Mockito.when(shoppingCartService.addProducts(eq(1L), any(List.class)))
                 .thenReturn(ResponseEntity.ok(cart));
