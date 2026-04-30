@@ -136,8 +136,6 @@ services:
   user-service:
     image: n11-clone/user-service:latest
     container_name: user-service
-    ports:
-      - "8766:8766"
     environment:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
@@ -153,8 +151,6 @@ services:
   product-service:
     image: n11-clone/product-service:latest
     container_name: product-service
-    ports:
-      - "8764:8764"
     environment:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
@@ -170,8 +166,6 @@ services:
   shopping-cart-service:
     image: n11-clone/shopping-cart-service:latest
     container_name: shopping-cart-service
-    ports:
-      - "8765:8765"
     environment:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
@@ -187,8 +181,6 @@ services:
   order-service:
     image: n11-clone/order-service:latest
     container_name: order-service
-    ports:
-      - "8767:8767"
     environment:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
@@ -207,8 +199,6 @@ services:
   stock-service:
     image: n11-clone/stock-service:latest
     container_name: stock-service
-    ports:
-      - "8769:8769"
     environment:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
