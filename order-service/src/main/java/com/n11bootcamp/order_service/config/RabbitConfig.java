@@ -11,11 +11,13 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
 @EnableRabbit
+@ConditionalOnProperty(name = "rabbit.enabled", havingValue = "true", matchIfMissing = true)
 public class RabbitConfig {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(RabbitConfig.class);

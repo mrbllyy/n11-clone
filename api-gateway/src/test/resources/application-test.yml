@@ -1,0 +1,14 @@
+spring:
+  cloud:
+    config:
+      enabled: false
+  data:
+    redis:
+      host: localhost
+      port: 6379
+eureka:
+  client:
+    enabled: false
+
+jwt:
+  secret: test-jwt-secret-change-me-32-bytes-minimum

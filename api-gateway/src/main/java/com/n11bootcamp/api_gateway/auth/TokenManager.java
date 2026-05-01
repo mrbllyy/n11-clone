@@ -4,31 +4,51 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
+import java.nio.charset.StandardCharsets;
 import java.security.Key;
+import java.security.MessageDigest;
+import java.time.Instant;
 import java.util.Date;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Service
 public class TokenManager {
 
-    private static final int validity = 100 * 60 * 1000;
-    Key key = Keys.secretKeyFor(SignatureAlgorithm.HS256);
+    @Value("${jwt.secret}")
+    private String jwtSecret;
+
+    @Value("${jwt.issuer:n11-clone}")
+    private String issuer;
+
+    @Value("${jwt.validity-ms:900000}")
+    private long validityMs;
+
+    private Key key;
+
+    @PostConstruct
+    void init() {
+        this.key = Keys.hmacShaKeyFor(sha256(jwtSecret));
+    }
 
     public String generateToken(String username) {
+        Instant now = Instant.now();
         return Jwts.builder()
                 .setSubject(username)
-                .setIssuer("www.n11-clone.com")
-                .setIssuedAt(new Date(System.currentTimeMillis()))
-                .setExpiration(new Date(System.currentTimeMillis() + validity))
-                .signWith(key)
+                .setIssuer(issuer)
+                .setIssuedAt(Date.from(now))
+                .setExpiration(Date.from(now.plusMillis(validityMs)))
+                .signWith(key, SignatureAlgorithm.HS256)
                 .compact();
     }
 
     public boolean tokenValidate(String token) {
-        if (getUsernameToken(token) != null && isExpired(token)) {
-            return true;
+        try {
+            return getUsernameToken(token) != null && !isExpired(token);
+        } catch (Exception ex) {
+            return false;
         }
-        return false;
     }
 
     public String getUsernameToken(String token) {
@@ -38,11 +58,19 @@ public class TokenManager {
 
     public boolean isExpired(String token) {
         Claims claims = getClaims(token);
-        return claims.getExpiration().after(new Date(System.currentTimeMillis()));
+        return claims.getExpiration().before(new Date());
     }
 
     private Claims getClaims(String token) {
         return Jwts.parser().setSigningKey(key).parseClaimsJws(token).getBody();
     }
 
+    private byte[] sha256(String value) {
+        try {
+            return MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception ex) {
+            throw new IllegalStateException("Could not initialize JWT key", ex);
+        }
+    }
 }

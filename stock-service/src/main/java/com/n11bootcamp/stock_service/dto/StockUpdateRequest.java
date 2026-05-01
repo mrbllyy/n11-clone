@@ -6,6 +6,8 @@ import java.util.List;
 
 public class StockUpdateRequest {
 
+    private Long orderId;
+
     @NotNull
     private List<StockItem> items;
 
@@ -14,6 +16,9 @@ public class StockUpdateRequest {
     public StockUpdateRequest(List<StockItem> items) {
         this.items = items;
     }
+
+    public Long getOrderId() { return orderId; }
+    public void setOrderId(Long orderId) { this.orderId = orderId; }
 
     public List<StockItem> getItems() { return items; }
     public void setItems(List<StockItem> items) { this.items = items; }

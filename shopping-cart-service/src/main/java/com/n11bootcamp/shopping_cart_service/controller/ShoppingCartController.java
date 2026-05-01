@@ -30,6 +30,13 @@ public class ShoppingCartController  {
         return shoppingCartService.addProducts(shoppingCartId, products);
     }
 
+    @PostMapping("/add/{productId}")
+    public ResponseEntity<ShoppingCart> addProductById(
+            @RequestHeader(value = "X-User-Name", required = false) String username,
+            @PathVariable Long productId) {
+        return shoppingCartService.addProductById(username, productId);
+    }
+
     @DeleteMapping("/{id}/products/{productId}")
     public ResponseEntity<ShoppingCart> removeProduct(
             @PathVariable("id") Long shoppingCartId,
@@ -64,6 +71,14 @@ public class ShoppingCartController  {
 
     // ✅ i18n
     @GetMapping
+    public ResponseEntity<ShoppingCart> getMyCart(
+            @RequestHeader(value = "X-User-Name", required = false) String username,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage
+    ) {
+        return shoppingCartService.getMyCart(username, acceptLanguage);
+    }
+
+    @GetMapping("/all")
     public ResponseEntity<List<ShoppingCart>> getAllCarts(
             @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage
     ) {

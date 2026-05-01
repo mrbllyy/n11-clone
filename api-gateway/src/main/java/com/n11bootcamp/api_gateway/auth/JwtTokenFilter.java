@@ -17,9 +17,13 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Component
 public class JwtTokenFilter extends OncePerRequestFilter {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(JwtTokenFilter.class);
 
     @Autowired
     private TokenManager tokenManager;
@@ -42,7 +46,7 @@ public class JwtTokenFilter extends OncePerRequestFilter {
             try {
                 username = tokenManager.getUsernameToken(token);
             } catch (Exception e) {
-                System.out.println(e.getMessage());
+                LOGGER.debug("JWT parsing failed: {}", e.getMessage());
             }
         }
 

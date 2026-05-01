@@ -20,6 +20,7 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -74,5 +75,48 @@ public class ShoppingCartControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1L))
                 .andExpect(jsonPath("$.products[0].title").value("Product 1"));
+    }
+
+    @Test
+    public void testAddProductByIdUsesGatewayUsername() throws Exception {
+        Product p1 = new Product();
+        p1.setId(3L);
+        p1.setTitle("Product 3");
+
+        ShoppingCart cart = new ShoppingCart();
+        cart.setId(1L);
+        cart.setShoppingCartName("bilal");
+        cart.setProducts(Collections.singleton(p1));
+
+        Mockito.when(shoppingCartService.addProductById("bilal", 3L))
+                .thenReturn(ResponseEntity.ok(cart));
+
+        mockMvc.perform(post("/api/shopping-cart/add/3")
+                .header("X-User-Name", "bilal"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.shoppingCartName").value("bilal"))
+                .andExpect(jsonPath("$.products[0].id").value(3L));
+    }
+
+    @Test
+    public void testGetMyCartUsesGatewayUsername() throws Exception {
+        Product p1 = new Product();
+        p1.setId(3L);
+        p1.setTitle("Product 3");
+
+        ShoppingCart cart = new ShoppingCart();
+        cart.setId(1L);
+        cart.setShoppingCartName("bilal");
+        cart.setProducts(Collections.singleton(p1));
+
+        Mockito.when(shoppingCartService.getMyCart("bilal", "tr"))
+                .thenReturn(ResponseEntity.ok(cart));
+
+        mockMvc.perform(get("/api/shopping-cart")
+                .header("X-User-Name", "bilal")
+                .header("Accept-Language", "tr"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.shoppingCartName").value("bilal"))
+                .andExpect(jsonPath("$.products[0].id").value(3L));
     }
 }

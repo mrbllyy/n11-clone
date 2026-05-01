@@ -8,6 +8,8 @@ import com.n11bootcamp.shopping_cart_service.entity.Product;
 import com.n11bootcamp.shopping_cart_service.entity.ShoppingCart;
 import com.n11bootcamp.shopping_cart_service.repository.ProductRepository;
 import com.n11bootcamp.shopping_cart_service.repository.ShoppingCartRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
@@ -15,6 +17,8 @@ import org.springframework.web.client.RestTemplate;
 
 @Service
 public class ShoppingCartService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(ShoppingCartService.class);
 
     @Autowired
     private ShoppingCartRepository shoppingCartRepository;
@@ -47,34 +51,7 @@ public class ShoppingCartService {
         for (Product incoming : products) {
             if (incoming == null) continue;
 
-            Product entity = productRepository.findById(incoming.getId())
-                    .orElseGet(() -> {
-                        Product p = new Product();
-                        p.setId(incoming.getId());
-                        return p;
-                    });
-
-            if (incoming.getTitle() != null && !incoming.getTitle().isBlank()) {
-                entity.setTitle(incoming.getTitle());
-            }
-            if (incoming.getCategory() != null && !incoming.getCategory().isBlank()) {
-                entity.setCategory(incoming.getCategory());
-            }
-            if (incoming.getImg() != null && !incoming.getImg().isBlank()) {
-                entity.setImg(incoming.getImg());
-            }
-            if (incoming.getLabels() != null && !incoming.getLabels().isBlank()) {
-                entity.setLabels(incoming.getLabels());
-            }
-            if (incoming.getDescription() != null && !incoming.getDescription().isBlank()) {
-                entity.setDescription(incoming.getDescription());
-            }
-            if (incoming.getPrice() > 0) {
-                entity.setPrice(incoming.getPrice());
-            }
-
-            Product saved = productRepository.saveAndFlush(entity);
-            persistedProducts.add(saved);
+            persistedProducts.add(upsertProduct(incoming));
         }
 
         Set<Product> existingProducts = shoppingCart.getProducts();
@@ -83,6 +60,43 @@ public class ShoppingCartService {
 
         shoppingCart.setProducts(existingProducts);
         return ResponseEntity.ok().body(shoppingCartRepository.save(shoppingCart));
+    }
+
+    public ResponseEntity<ShoppingCart> addProductById(String username, Long productId) {
+        if (username == null || username.isBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        if (productId == null || productId <= 0) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        Product product = restTemplate.getForObject(
+                PRODUCT_SERVICE_BASE + "/api/product/" + productId,
+                Product.class
+        );
+        if (product == null || product.getId() <= 0) {
+            return ResponseEntity.notFound().build();
+        }
+        if (product.getId() != productId) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        Product persistedProduct = upsertProduct(product);
+        ShoppingCart shoppingCart = shoppingCartRepository.findByShoppingCartName(username)
+                .orElseGet(() -> {
+                    ShoppingCart cart = new ShoppingCart();
+                    cart.setShoppingCartName(username);
+                    return cart;
+                });
+
+        Set<Product> products = shoppingCart.getProducts();
+        if (products == null) {
+            products = new HashSet<>();
+        }
+        products.add(persistedProduct);
+        shoppingCart.setProducts(products);
+
+        return ResponseEntity.ok(shoppingCartRepository.save(shoppingCart));
     }
 
     public ResponseEntity<ShoppingCart> removeProduct(Long shoppingCartId, Long productId) {
@@ -150,6 +164,14 @@ public class ShoppingCartService {
         return ResponseEntity.ok(shoppingCarts);
     }
 
+    public ResponseEntity<ShoppingCart> getMyCart(String username, String acceptLanguage) {
+        if (username == null || username.isBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        return getCartByShoppingCartName(username, acceptLanguage);
+    }
+
     public ResponseEntity<String> deleteCartById(Long shoppingCartId) {
         if (shoppingCartRepository.existsById(shoppingCartId)) {
             shoppingCartRepository.deleteById(shoppingCartId);
@@ -162,6 +184,42 @@ public class ShoppingCartService {
     public ResponseEntity<String> deleteAllCarts() {
         shoppingCartRepository.deleteAll();
         return ResponseEntity.ok("All Shopping Carts deleted successfully");
+    }
+
+    private Product upsertProduct(Product incoming) {
+        Product entity = productRepository.findById(incoming.getId())
+                .orElseGet(() -> {
+                    Product p = new Product();
+                    p.setId(incoming.getId());
+                    return p;
+                });
+
+        if (incoming.getTitle() != null && !incoming.getTitle().isBlank()) {
+            entity.setTitle(incoming.getTitle());
+        }
+        if (incoming.getCategory() != null && !incoming.getCategory().isBlank()) {
+            entity.setCategory(incoming.getCategory());
+        }
+        if (incoming.getCategoryKey() != null && !incoming.getCategoryKey().isBlank()) {
+            entity.setCategoryKey(incoming.getCategoryKey());
+        }
+        if (incoming.getImg() != null && !incoming.getImg().isBlank()) {
+            entity.setImg(incoming.getImg());
+        }
+        if (incoming.getLabels() != null && !incoming.getLabels().isBlank()) {
+            entity.setLabels(incoming.getLabels());
+        }
+        if (incoming.getDescription() != null && !incoming.getDescription().isBlank()) {
+            entity.setDescription(incoming.getDescription());
+        }
+        if (incoming.getPrice() > 0) {
+            entity.setPrice(incoming.getPrice());
+        }
+        if (incoming.getTranslations() != null) {
+            entity.setTranslations(incoming.getTranslations());
+        }
+
+        return productRepository.saveAndFlush(entity);
     }
 
     // ---------------------------
@@ -214,9 +272,8 @@ public class ShoppingCartService {
                 }
 
             } catch (Exception e) {
-                // Sessizce yutma: debug için görünsün
-                System.out.println("Product-service i18n fetch failed for id=" + p.getId()
-                        + " lang=" + lang + " err=" + e.getMessage());
+                LOGGER.debug("Product-service i18n fetch failed for id={} lang={}: {}",
+                        p.getId(), lang, e.getMessage());
             }
         }
     }

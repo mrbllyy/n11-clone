@@ -41,15 +41,22 @@ services:
     environment:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
+      - REDIS_HOST=redis
+      - JWT_SECRET=${JWT_SECRET:-local-dev-jwt-secret-change-me-32-bytes-minimum}
     depends_on:
       discovery-server:
         condition: service_healthy
+      redis:
+        condition: service_started
     networks:
       - n11-network
 
   rabbitmq:
     image: rabbitmq:3-management
     container_name: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBIT_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBIT_PASSWORD:-guest}
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -61,13 +68,21 @@ services:
     networks:
       - n11-network
 
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - n11-network
+
   # --- Databases ---
   user-db:
     image: postgres:latest
     container_name: user-db
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 1234
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-1234}
       POSTGRES_DB: user-db
     ports:
       - "5434:5432"
@@ -80,8 +95,8 @@ services:
     image: postgres:latest
     container_name: product-db
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 1234
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-1234}
       POSTGRES_DB: product-db
     ports:
       - "5435:5432"
@@ -94,8 +109,8 @@ services:
     image: postgres:latest
     container_name: cart-db
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 1234
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-1234}
       POSTGRES_DB: cart-db
     ports:
       - "5436:5432"
@@ -108,8 +123,8 @@ services:
     image: postgres:latest
     container_name: order-db
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 1234
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-1234}
       POSTGRES_DB: order-db
     ports:
       - "5437:5432"
@@ -122,8 +137,8 @@ services:
     image: postgres:latest
     container_name: stock-db
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 1234
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-1234}
       POSTGRES_DB: n11bootcamp
     ports:
       - "5438:5432"
@@ -140,6 +155,8 @@ services:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
       - SPRING_DATASOURCE_URL=jdbc:postgresql://user-db:5432/user-db
+      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-postgres}
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-1234}
     depends_on:
       discovery-server:
         condition: service_healthy
@@ -155,6 +172,8 @@ services:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
       - SPRING_DATASOURCE_URL=jdbc:postgresql://product-db:5432/product-db
+      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-postgres}
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-1234}
     depends_on:
       discovery-server:
         condition: service_healthy
@@ -170,6 +189,8 @@ services:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
       - SPRING_DATASOURCE_URL=jdbc:postgresql://cart-db:5432/cart-db
+      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-postgres}
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-1234}
     depends_on:
       discovery-server:
         condition: service_healthy
@@ -185,13 +206,32 @@ services:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
       - SPRING_DATASOURCE_URL=jdbc:postgresql://order-db:5432/order-db
+      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-postgres}
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-1234}
       - RABBIT_HOST=rabbitmq
+      - RABBIT_USER=${RABBIT_USER:-guest}
+      - RABBIT_PASSWORD=${RABBIT_PASSWORD:-guest}
     depends_on:
       discovery-server:
         condition: service_healthy
       order-db:
         condition: service_started
       rabbitmq:
+        condition: service_healthy
+      payment-service:
+        condition: service_started
+    networks:
+      - n11-network
+
+  payment-service:
+    image: n11-clone/payment-service:latest
+    container_name: payment-service
+    environment:
+      - CONFIG_URI=http://config-server:8762
+      - EUREKA_URI=http://discovery-server:8761/eureka
+      - PAYMENT_MOCK_FORCE_FAILURE=false
+    depends_on:
+      discovery-server:
         condition: service_healthy
     networks:
       - n11-network
@@ -203,7 +243,11 @@ services:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
       - SPRING_DATASOURCE_URL=jdbc:postgresql://stock-db:5432/n11bootcamp
+      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-postgres}
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-1234}
       - RABBIT_HOST=rabbitmq
+      - RABBIT_USER=${RABBIT_USER:-guest}
+      - RABBIT_PASSWORD=${RABBIT_PASSWORD:-guest}
     depends_on:
       discovery-server:
         condition: service_healthy

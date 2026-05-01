@@ -9,6 +9,9 @@ public class ProductStock {
     @Id
     private Long productId;
 
+    @Version
+    private Long version;
+
     @Column(nullable = false)
     private String productName;
 
@@ -33,6 +36,14 @@ public class ProductStock {
 
     public void setProductId(Long productId) {
         this.productId = productId;
+    }
+
+    public Long getVersion() {
+        return version;
+    }
+
+    public void setVersion(Long version) {
+        this.version = version;
     }
 
     public String getProductName() {

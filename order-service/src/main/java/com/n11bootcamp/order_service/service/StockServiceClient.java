@@ -23,4 +23,14 @@ public interface StockServiceClient {
     @CircuitBreaker(name = "stockService")
     @Retry(name = "stockService")
     StockUpdateResponse increaseStock(@RequestBody StockUpdateRequest request);
+
+    @PostMapping("/release")
+    @CircuitBreaker(name = "stockService")
+    @Retry(name = "stockService")
+    StockUpdateResponse releaseStock(@RequestBody StockUpdateRequest request);
+
+    @PostMapping("/commit")
+    @CircuitBreaker(name = "stockService")
+    @Retry(name = "stockService")
+    StockUpdateResponse commitStock(@RequestBody StockUpdateRequest request);
 }

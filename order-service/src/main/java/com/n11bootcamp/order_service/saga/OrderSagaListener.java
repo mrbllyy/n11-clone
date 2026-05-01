@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.n11bootcamp.order_service.dto.payment.PaymentRequest;
 import com.n11bootcamp.order_service.dto.payment.PaymentResponse;
 import com.n11bootcamp.order_service.dto.stock.StockUpdateRequest;
+import com.n11bootcamp.order_service.dto.stock.StockUpdateResponse;
 import com.n11bootcamp.order_service.entity.Order;
 import com.n11bootcamp.order_service.entity.OrderDetails;
 import com.n11bootcamp.order_service.entity.OrderItem;
@@ -11,14 +12,13 @@ import com.n11bootcamp.order_service.entity.OrderStatus;
 import com.n11bootcamp.order_service.repository.OrderRepository;
 import com.n11bootcamp.order_service.service.PaymentServiceClient;
 import com.n11bootcamp.order_service.service.StockServiceClient;
+import java.util.ArrayList;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.ArrayList;
-import java.util.List;
 
 @Component
 public class OrderSagaListener {
@@ -40,146 +40,158 @@ public class OrderSagaListener {
         this.paymentCardStore = paymentCardStore;
     }
 
-    // ================== STOCK RESERVED EVENT ==================
-
-    /**
-     * Stock-service "stok rezerve edildi" event'i gönderdiğinde burası çalışır.
-     *
-     * stock.rabbit.reservedRoutingKey = order.stock.reserved
-     * order.rabbit.stockReservedQueue  = order.stock.reserved.queue
-     */
     @Transactional
     @RabbitListener(queues = "${order.rabbit.stockReservedQueue}")
     public void onStockReserved(StockReservedEvent event) {
-        LOGGER.info("[SAGA] StockReservedEvent alındı: orderId={}, username={}, message={}",
+        LOGGER.info("[SAGA] StockReservedEvent received: orderId={}, username={}, message={}",
                 event.getOrderId(), event.getUsername(), event.getMessage());
 
         Order order = orderRepository.findById(event.getOrderId())
                 .orElseThrow(() -> new RuntimeException("Order not found: " + event.getOrderId()));
 
-        if (order.getStatus() == OrderStatus.CANCELLED || order.getStatus() == OrderStatus.COMPLETED) {
-            LOGGER.warn("[SAGA] Order zaten son durumda, status={}, orderId={}",
+        if (order.getStatus() != OrderStatus.CREATED) {
+            LOGGER.warn("[SAGA] Ignoring stock reserved event for non-created order. status={}, orderId={}",
                     order.getStatus(), order.getId());
             return;
         }
 
-        // 1) ORDER → STOCK_DEDUCTED
         order.setStatus(OrderStatus.STOCK_DEDUCTED);
         orderRepository.save(order);
 
-        // 2) Payment isteği hazırla
-        OrderDetails details = order.getOrderDetails();
-        PaymentRequest pr = new PaymentRequest();
-        pr.setOrderId(order.getId());
-        pr.setUsername(order.getUsername());
-        if (details != null) {
-            pr.setFirstName(details.getFirstName());
-            pr.setLastName(details.getLastName());
-            pr.setStreetAddress(details.getStreetAddress());
-            pr.setAddress(details.getStreetAddress());
-            pr.setEmail(details.getEmail());
-        }
-        pr.setAmount(order.getTotalPrice());
-        pr.setPaymentMethod("IYZICO"); // istersen Order'a paymentMethod kolonu ekleyip oradan da çekebilirsin
-
-        // 🔹 Kart bilgisini RAM store'dan al
+        PaymentRequest paymentRequest = toPaymentRequest(order);
         PaymentRequest.Card storedCard = paymentCardStore.take(order.getId());
         if (storedCard == null) {
-            LOGGER.warn("[SAGA] Payment için kart bulunamadı (RAM store boş). orderId={}", order.getId());
-            markOrderCancelledAndCompensateStock(order);
+            LOGGER.warn("[SAGA] Payment card is missing from temporary store. orderId={}", order.getId());
+            markOrderCancelledAndReleaseStock(order);
             return;
         }
-        pr.setCard(storedCard);
+        paymentRequest.setCard(storedCard);
 
-        // Items → payment request
-        List<PaymentRequest.Item> payItems = new ArrayList<>();
-        for (OrderItem it : order.getItems()) {
-            PaymentRequest.Item pi = new PaymentRequest.Item();
-            pi.setProductId(it.getProductId());
-            pi.setProductName(it.getProductName());
-            pi.setPrice(it.getPrice());
-            pi.setQuantity(it.getQuantity());
-            payItems.add(pi);
-        }
-        pr.setItems(payItems);
-
-        LOGGER.info("[SAGA] Payment isteği gönderiliyor: orderId={}, amount={}",
-                order.getId(), order.getTotalPrice());
-
-        PaymentResponse resp;
+        PaymentResponse paymentResponse;
         try {
-            resp = paymentServiceClient.makePayment(pr);
+            paymentResponse = paymentServiceClient.makePayment(paymentRequest);
         } catch (Exception ex) {
-            LOGGER.error("[SAGA] Payment servis çağrısı hata verdi, orderId={}", order.getId(), ex);
-            markOrderCancelledAndCompensateStock(order);
+            LOGGER.error("[SAGA] Payment service call failed. orderId={}", order.getId(), ex);
+            markOrderCancelledAndReleaseStock(order);
             return;
         }
 
-        if (resp == null || !resp.isSuccess()) {
-            LOGGER.warn("[SAGA] Payment başarısız. orderId={}, message={}",
-                    order.getId(), resp != null ? resp.getMessage() : "null response");
-            markOrderCancelledAndCompensateStock(order);
+        if (paymentResponse == null || !paymentResponse.isSuccess()) {
+            LOGGER.warn("[SAGA] Payment rejected. orderId={}, message={}",
+                    order.getId(), paymentResponse != null ? paymentResponse.getMessage() : "null response");
+            markOrderCancelledAndReleaseStock(order);
             return;
         }
 
-        // 3) Payment başarılı → ORDER: PAID → COMPLETED
         order.setStatus(OrderStatus.PAID);
         orderRepository.save(order);
 
+        StockUpdateResponse commitResponse = commitReservedStock(order);
+        if (commitResponse == null || !commitResponse.isSuccess()) {
+            LOGGER.error("[SAGA] Stock commit failed. orderId={}, message={}",
+                    order.getId(), commitResponse != null ? commitResponse.getMessage() : "null response");
+            markOrderCancelledAndReleaseStock(order);
+            return;
+        }
+
         order.setStatus(OrderStatus.COMPLETED);
         orderRepository.save(order);
-
-        LOGGER.info("[SAGA] Order COMPLETED: orderId={}", order.getId());
+        LOGGER.info("[SAGA] Order completed. orderId={}", order.getId());
     }
 
-    // ================== STOCK REJECTED EVENT ==================
-
-    /**
-     * Stock-service "stok rezerve edilemedi" event'i gönderdiğinde burası çalışır.
-     *
-     * stock.rabbit.rejectedRoutingKey = order.stock.rejected
-     * order.rabbit.stockRejectedQueue  = order.stock.rejected.queue
-     */
     @Transactional
     @RabbitListener(queues = "${order.rabbit.stockRejectedQueue}")
     public void onStockRejected(StockRejectedEvent event) {
-        LOGGER.info("[SAGA] StockRejectedEvent alındı: orderId={}, username={}, message={}",
+        LOGGER.info("[SAGA] StockRejectedEvent received: orderId={}, username={}, message={}",
                 event.getOrderId(), event.getUsername(), event.getMessage());
 
         Order order = orderRepository.findById(event.getOrderId())
                 .orElseThrow(() -> new RuntimeException("Order not found: " + event.getOrderId()));
 
+        if (order.getStatus() == OrderStatus.COMPLETED || order.getStatus() == OrderStatus.CANCELLED) {
+            LOGGER.warn("[SAGA] Ignoring stock rejected event for final order. status={}, orderId={}",
+                    order.getStatus(), order.getId());
+            return;
+        }
+
         order.setStatus(OrderStatus.CANCELLED);
         orderRepository.save(order);
-
-        LOGGER.info("[SAGA] Order CANCELLED (stock rejected): orderId={}", order.getId());
+        LOGGER.info("[SAGA] Order cancelled because stock was rejected. orderId={}", order.getId());
     }
 
-    // ================== YARDIMCI: CANCEL + STOCK TELAFİ ==================
+    private PaymentRequest toPaymentRequest(Order order) {
+        PaymentRequest request = new PaymentRequest();
+        request.setOrderId(order.getId());
+        request.setUsername(order.getUsername());
+        request.setAmount(order.getTotalPrice());
+        request.setPaymentMethod("MOCK");
 
-    private void markOrderCancelledAndCompensateStock(Order order) {
+        OrderDetails details = order.getOrderDetails();
+        if (details != null) {
+            request.setFirstName(details.getFirstName());
+            request.setLastName(details.getLastName());
+            request.setStreetAddress(details.getStreetAddress());
+            request.setAddress(details.getStreetAddress());
+            request.setCity(details.getCity());
+            request.setCountry(details.getCountry());
+            request.setPhone(details.getPhone());
+            request.setEmail(details.getEmail());
+        }
+
+        List<PaymentRequest.Item> paymentItems = new ArrayList<>();
+        for (OrderItem item : order.getItems()) {
+            PaymentRequest.Item paymentItem = new PaymentRequest.Item();
+            paymentItem.setProductId(item.getProductId());
+            paymentItem.setProductName(item.getProductName());
+            paymentItem.setPrice(item.getPrice());
+            paymentItem.setQuantity(item.getQuantity());
+            paymentItems.add(paymentItem);
+        }
+        request.setItems(paymentItems);
+
+        return request;
+    }
+
+    private void markOrderCancelledAndReleaseStock(Order order) {
         order.setStatus(OrderStatus.CANCELLED);
         orderRepository.save(order);
 
         try {
-            StockUpdateRequest req = new StockUpdateRequest();
-            List<StockUpdateRequest.StockItem> items = new ArrayList<>();
-            for (OrderItem it : order.getItems()) {
-                StockUpdateRequest.StockItem si = new StockUpdateRequest.StockItem();
-                si.setProductId(it.getProductId());
-                si.setQuantity(it.getQuantity());
-                items.add(si);
+            LOGGER.info("[SAGA] Releasing reserved stock. orderId={}", order.getId());
+            StockUpdateResponse response = stockServiceClient.releaseStock(toStockUpdateRequest(order));
+            if (response == null || !response.isSuccess()) {
+                LOGGER.error("[SAGA] Stock release failed. orderId={}, message={}",
+                        order.getId(), response != null ? response.getMessage() : "null response");
             }
-            req.setItems(items);
-
-            LOGGER.info("[SAGA] Stok telafisi (increaseStock) çağrılıyor. orderId={}", order.getId());
-            stockServiceClient.increaseStock(req);
         } catch (Exception ex) {
-            LOGGER.error("[SAGA] Stok telafisi başarısız. orderId={}", order.getId(), ex);
+            LOGGER.error("[SAGA] Stock release call failed. orderId={}", order.getId(), ex);
         }
     }
 
-    // ================== EVENT DTO’LARI (stock-service ile UYUMLU) ==================
+    private StockUpdateResponse commitReservedStock(Order order) {
+        try {
+            LOGGER.info("[SAGA] Committing reserved stock. orderId={}", order.getId());
+            return stockServiceClient.commitStock(toStockUpdateRequest(order));
+        } catch (Exception ex) {
+            LOGGER.error("[SAGA] Stock commit call failed. orderId={}", order.getId(), ex);
+            return null;
+        }
+    }
+
+    private StockUpdateRequest toStockUpdateRequest(Order order) {
+        StockUpdateRequest request = new StockUpdateRequest();
+        request.setOrderId(order.getId());
+
+        List<StockUpdateRequest.StockItem> items = new ArrayList<>();
+        for (OrderItem item : order.getItems()) {
+            StockUpdateRequest.StockItem stockItem = new StockUpdateRequest.StockItem();
+            stockItem.setProductId(item.getProductId());
+            stockItem.setQuantity(item.getQuantity());
+            items.add(stockItem);
+        }
+        request.setItems(items);
+        return request;
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class StockReservedEvent {

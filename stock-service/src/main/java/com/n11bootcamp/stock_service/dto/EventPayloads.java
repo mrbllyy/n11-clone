@@ -71,14 +71,14 @@ public class EventPayloads {
     public static class StockRejectedEvent {
         private Long orderId;
         private String username;
-        private String reason;
+        private String message;
 
         public StockRejectedEvent() { }
 
-        public StockRejectedEvent(Long orderId, String username, String reason) {
+        public StockRejectedEvent(Long orderId, String username, String message) {
             this.orderId = orderId;
             this.username = username;
-            this.reason = reason;
+            this.message = message;
         }
 
         public Long getOrderId() { return orderId; }
@@ -87,7 +87,10 @@ public class EventPayloads {
         public String getUsername() { return username; }
         public void setUsername(String username) { this.username = username; }
 
-        public String getReason() { return reason; }
-        public void setReason(String reason) { this.reason = reason; }
+        public String getMessage() { return message; }
+        public void setMessage(String message) { this.message = message; }
+
+        public String getReason() { return message; }
+        public void setReason(String reason) { this.message = reason; }
     }
 }

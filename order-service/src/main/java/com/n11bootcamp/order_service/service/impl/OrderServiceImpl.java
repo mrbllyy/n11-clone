@@ -20,6 +20,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -134,12 +136,7 @@ public class OrderServiceImpl implements OrderService {
         LOGGER.info("StockReserveRequestedEvent publish ediliyor. exchange={}, routingKey={}, payload={}",
                 stockExchange, stockReserveRequestedRoutingKey, eventPayload);
 
-        // RabbitMQ'ya gönder
-        rabbitTemplate.convertAndSend(
-                stockExchange,                  // stock.events.exchange
-                stockReserveRequestedRoutingKey,// order.stock.reserve.requested
-                eventPayload
-        );
+        publishStockReserveAfterCommit(eventPayload);
 
         // 2.1️⃣ (İsteğe bağlı) Spring içi event publish (senin eski yapın)
         OrderCreatedEvent springEvent = new OrderCreatedEvent();
@@ -174,6 +171,28 @@ public class OrderServiceImpl implements OrderService {
         );
 
         return response;
+    }
+
+    private void publishStockReserveAfterCommit(StockReserveRequestedEvent eventPayload) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            publishStockReserve(eventPayload);
+            return;
+        }
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                publishStockReserve(eventPayload);
+            }
+        });
+    }
+
+    private void publishStockReserve(StockReserveRequestedEvent eventPayload) {
+        rabbitTemplate.convertAndSend(
+                stockExchange,
+                stockReserveRequestedRoutingKey,
+                eventPayload
+        );
     }
 
     @Override

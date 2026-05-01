@@ -4,10 +4,12 @@ import com.n11bootcamp.api_gateway.auth.TokenManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest
+@ActiveProfiles("test")
 public class ApiGatewayApplicationTests {
 
 	@Autowired
@@ -22,13 +24,8 @@ public class ApiGatewayApplicationTests {
 		String username = "test-user";
 		String token = tokenManager.generateToken(username);
 
-		System.out.println("Generated Token: " + token);
-
 		String decodedUsername = tokenManager.getUsernameToken(token);
-		System.out.println("Decoded Username: " + decodedUsername);
-
 		boolean isValid = tokenManager.tokenValidate(token);
-		System.out.println("Is Token Valid: " + isValid);
 
 		assertNotNull(token, "Token should not be null");
 		assertEquals(username, decodedUsername, "Decoded username should match original");
