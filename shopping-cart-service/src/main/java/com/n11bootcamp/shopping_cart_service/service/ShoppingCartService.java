@@ -1,15 +1,12 @@
 package com.n11bootcamp.shopping_cart_service.service;
 
-
 import java.util.*;
 
-
+import com.n11bootcamp.shopping_cart_service.entity.CartItem;
 import com.n11bootcamp.shopping_cart_service.entity.Product;
 import com.n11bootcamp.shopping_cart_service.entity.ShoppingCart;
 import com.n11bootcamp.shopping_cart_service.repository.ProductRepository;
 import com.n11bootcamp.shopping_cart_service.repository.ShoppingCartRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
@@ -17,8 +14,6 @@ import org.springframework.web.client.RestTemplate;
 
 @Service
 public class ShoppingCartService {
-
-    private static final Logger LOGGER = LoggerFactory.getLogger(ShoppingCartService.class);
 
     @Autowired
     private ShoppingCartRepository shoppingCartRepository;
@@ -29,10 +24,7 @@ public class ShoppingCartService {
     @Autowired
     private RestTemplate restTemplate;
 
-    // ✅ Microservice discovery kullanıyorsan:
     private static final String PRODUCT_SERVICE_BASE = "http://PRODUCT-SERVICE";
-    // ✅ Local test için istersen bunu açıp kapatabilirsin:
-    // private static final String PRODUCT_SERVICE_BASE = "http://localhost:8764";
 
     public ResponseEntity<ShoppingCart> createCart(String name) {
         ShoppingCart shoppingCart = new ShoppingCart();
@@ -41,101 +33,118 @@ public class ShoppingCartService {
     }
 
     public ResponseEntity<ShoppingCart> addProducts(Long shoppingCartId, List<Product> products) {
-
         ShoppingCart shoppingCart = shoppingCartRepository.findById(shoppingCartId)
                 .orElseThrow(() -> new RuntimeException("Shopping cart not found"));
-
-        // ✅ Ürünleri güvenli şekilde upsert et (NULL overwrite yok)
-        List<Product> persistedProducts = new ArrayList<>();
 
         for (Product incoming : products) {
             if (incoming == null) continue;
 
-            persistedProducts.add(upsertProduct(incoming));
+            // 1. Ürünü yerel DB'de güncelle/kaydet
+            Product entity = productRepository.findById(incoming.getId())
+                    .orElseGet(() -> {
+                        Product p = new Product();
+                        p.setId(incoming.getId());
+                        return p;
+                    });
+
+            updateProductFields(entity, incoming);
+            Product savedProduct = productRepository.saveAndFlush(entity);
+
+            // 2. Sepette bu ürün zaten var mı kontrol et
+            Optional<CartItem> existingItem = shoppingCart.getCartItems().stream()
+                    .filter(item -> item.getProduct().getId() == savedProduct.getId())
+                    .findFirst();
+
+            if (existingItem.isPresent()) {
+                // Varsa adedi artır
+                CartItem item = existingItem.get();
+                item.setQuantity(item.getQuantity() + 1);
+            } else {
+                // Yoksa yeni kalem ekle
+                CartItem newItem = new CartItem(shoppingCart, savedProduct, 1);
+                shoppingCart.getCartItems().add(newItem);
+            }
         }
 
-        Set<Product> existingProducts = shoppingCart.getProducts();
-        if (existingProducts == null) existingProducts = new HashSet<>();
-        existingProducts.addAll(persistedProducts);
-
-        shoppingCart.setProducts(existingProducts);
         return ResponseEntity.ok().body(shoppingCartRepository.save(shoppingCart));
     }
 
     public ResponseEntity<ShoppingCart> addProductById(String username, Long productId) {
-        if (username == null || username.isBlank()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-        }
-        if (productId == null || productId <= 0) {
-            return ResponseEntity.badRequest().build();
-        }
-
-        Product product = restTemplate.getForObject(
-                PRODUCT_SERVICE_BASE + "/api/product/" + productId,
-                Product.class
-        );
-        if (product == null || product.getId() <= 0) {
-            return ResponseEntity.notFound().build();
-        }
-        if (product.getId() != productId) {
-            return ResponseEntity.badRequest().build();
-        }
-
-        Product persistedProduct = upsertProduct(product);
-        ShoppingCart shoppingCart = shoppingCartRepository.findByShoppingCartName(username)
+        if (username == null || username.isBlank()) username = "default_user";
+        
+        String finalUsername = username;
+        ShoppingCart cart = shoppingCartRepository.findByShoppingCartName(username)
                 .orElseGet(() -> {
-                    ShoppingCart cart = new ShoppingCart();
-                    cart.setShoppingCartName(username);
-                    return cart;
+                    ShoppingCart newCart = new ShoppingCart();
+                    newCart.setShoppingCartName(finalUsername);
+                    return shoppingCartRepository.save(newCart);
                 });
 
-        Set<Product> products = shoppingCart.getProducts();
-        if (products == null) {
-            products = new HashSet<>();
-        }
-        products.add(persistedProduct);
-        shoppingCart.setProducts(products);
+        // Product service'ten ürünü çek
+        Product incoming = restTemplate.getForObject(PRODUCT_SERVICE_BASE + "/api/product/" + productId, Product.class);
+        if (incoming == null) throw new RuntimeException("Product not found in Product Service");
 
-        return ResponseEntity.ok(shoppingCartRepository.save(shoppingCart));
+        return addProducts(cart.getId(), Collections.singletonList(incoming));
+    }
+
+    public ResponseEntity<ShoppingCart> removeProductFromMyCart(String username, Long productId) {
+        final String finalUsername = (username == null || username.isBlank()) ? "default_user" : username;
+
+        ShoppingCart cart = shoppingCartRepository.findByShoppingCartName(finalUsername)
+                .orElseThrow(() -> new RuntimeException("Cart not found for user: " + finalUsername));
+
+        // Ürünü sepet kalemlerinden (CartItems) bul ve çıkar
+        boolean removed = cart.getCartItems().removeIf(item -> item.getProduct().getId() == productId);
+        
+        if (!removed) {
+            throw new RuntimeException("Product not found in cart");
+        }
+
+        return ResponseEntity.ok(shoppingCartRepository.save(cart));
+    }
+
+    public ResponseEntity<ShoppingCart> clearMyCart(String username) {
+        final String finalUsername = (username == null || username.isBlank()) ? "default_user" : username;
+
+        ShoppingCart cart = shoppingCartRepository.findByShoppingCartName(finalUsername)
+                .orElseThrow(() -> new RuntimeException("Cart not found for user: " + finalUsername));
+
+        cart.getCartItems().clear();
+
+        return ResponseEntity.ok(shoppingCartRepository.save(cart));
+    }
+
+    private void updateProductFields(Product entity, Product incoming) {
+        if (incoming.getTitle() != null && !incoming.getTitle().isBlank()) entity.setTitle(incoming.getTitle());
+        if (incoming.getCategory() != null && !incoming.getCategory().isBlank()) entity.setCategory(incoming.getCategory());
+        if (incoming.getImg() != null && !incoming.getImg().isBlank()) entity.setImg(incoming.getImg());
+        if (incoming.getLabels() != null && !incoming.getLabels().isBlank()) entity.setLabels(incoming.getLabels());
+        if (incoming.getDescription() != null && !incoming.getDescription().isBlank()) entity.setDescription(incoming.getDescription());
+        if (incoming.getPrice() > 0) entity.setPrice(incoming.getPrice());
     }
 
     public ResponseEntity<ShoppingCart> removeProduct(Long shoppingCartId, Long productId) {
         ShoppingCart shoppingCart = shoppingCartRepository.findById(shoppingCartId)
                 .orElseThrow(() -> new RuntimeException("Shopping cart not found"));
 
-        Set<Product> existingProducts = shoppingCart.getProducts();
-        if (existingProducts == null) return ResponseEntity.ok().body(shoppingCart);
-
-        existingProducts.removeIf(product -> product.getId() == productId);
-        shoppingCart.setProducts(existingProducts);
+        shoppingCart.getCartItems().removeIf(item -> item.getProduct().getId() == productId);
 
         return ResponseEntity.ok().body(shoppingCartRepository.save(shoppingCart));
     }
 
-    // ✅ Controller compile fix için tek parametreli overload kalsın
-    public ResponseEntity<Map<String, String>> getShoppingCartPrice(Long shoppingCartId) {
-        return getShoppingCartPrice(shoppingCartId, null);
-    }
-
-    // ✅ İstersen header'a göre ileride para birimi vs. de eklenebilir
     public ResponseEntity<Map<String, String>> getShoppingCartPrice(Long shoppingCartId, String acceptLanguage) {
-        Map<String, String> response = new HashMap<>();
-
         ShoppingCart shoppingCart = shoppingCartRepository.findById(shoppingCartId)
                 .orElseThrow(() -> new RuntimeException("Shopping cart not found"));
 
-        int totalPrice = shoppingCart.getProducts()
-                .stream()
-                .map(product -> restTemplate.getForObject(
-                        PRODUCT_SERVICE_BASE + "/api/product/" + product.getId(), HashMap.class))
-                .mapToInt(productResponse -> (int) productResponse.get("price"))
+        double totalPrice = shoppingCart.getCartItems().stream()
+                .mapToDouble(item -> item.getProduct().getPrice() * item.getQuantity())
                 .sum();
 
+        Map<String, String> response = new HashMap<>();
         response.put("total_price", Double.toString(totalPrice));
         return ResponseEntity.ok().body(response);
     }
 
-    // ✅ i18n: sepeti localize ederek dön
     public ResponseEntity<ShoppingCart> getCartById(Long shoppingCartId, String acceptLanguage) {
         ShoppingCart shoppingCart = shoppingCartRepository.findById(shoppingCartId)
                 .orElseThrow(() -> new RuntimeException("Shopping cart not found"));
@@ -144,41 +153,42 @@ public class ShoppingCartService {
         return ResponseEntity.ok(shoppingCart);
     }
 
-    // ✅ i18n: name ile de localize
     public ResponseEntity<ShoppingCart> getCartByShoppingCartName(String shoppingCartName, String acceptLanguage) {
-        Optional<ShoppingCart> opt = shoppingCartRepository.findByShoppingCartName(shoppingCartName);
-
-        if (opt.isPresent()) {
-            ShoppingCart cart = opt.get();
-            localizeCart(cart, acceptLanguage);
-            return ResponseEntity.ok(cart);
-        } else {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-        }
+        return shoppingCartRepository.findByShoppingCartName(shoppingCartName)
+                .map(cart -> {
+                    localizeCart(cart, acceptLanguage);
+                    return ResponseEntity.ok(cart);
+                })
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).build());
     }
 
-    // ✅ i18n: list
+    public ResponseEntity<ShoppingCart> getMyCart(String username, String acceptLanguage) {
+        if (username == null || username.isBlank()) username = "default_user";
+        
+        String finalUsername = username;
+        ShoppingCart cart = shoppingCartRepository.findByShoppingCartName(username)
+                .orElseGet(() -> {
+                    ShoppingCart newCart = new ShoppingCart();
+                    newCart.setShoppingCartName(finalUsername);
+                    return shoppingCartRepository.save(newCart);
+                });
+
+        localizeCart(cart, acceptLanguage);
+        return ResponseEntity.ok(cart);
+    }
+
     public ResponseEntity<List<ShoppingCart>> getAllCarts(String acceptLanguage) {
         List<ShoppingCart> shoppingCarts = shoppingCartRepository.findAll();
         shoppingCarts.forEach(c -> localizeCart(c, acceptLanguage));
         return ResponseEntity.ok(shoppingCarts);
     }
 
-    public ResponseEntity<ShoppingCart> getMyCart(String username, String acceptLanguage) {
-        if (username == null || username.isBlank()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-        }
-
-        return getCartByShoppingCartName(username, acceptLanguage);
-    }
-
     public ResponseEntity<String> deleteCartById(Long shoppingCartId) {
         if (shoppingCartRepository.existsById(shoppingCartId)) {
             shoppingCartRepository.deleteById(shoppingCartId);
             return ResponseEntity.ok("Shopping Cart deleted successfully");
-        } else {
-            throw new RuntimeException("Shopping Cart not found in DB");
         }
+        throw new RuntimeException("Shopping Cart not found in DB");
     }
 
     public ResponseEntity<String> deleteAllCarts() {
@@ -186,52 +196,14 @@ public class ShoppingCartService {
         return ResponseEntity.ok("All Shopping Carts deleted successfully");
     }
 
-    private Product upsertProduct(Product incoming) {
-        Product entity = productRepository.findById(incoming.getId())
-                .orElseGet(() -> {
-                    Product p = new Product();
-                    p.setId(incoming.getId());
-                    return p;
-                });
-
-        if (incoming.getTitle() != null && !incoming.getTitle().isBlank()) {
-            entity.setTitle(incoming.getTitle());
-        }
-        if (incoming.getCategory() != null && !incoming.getCategory().isBlank()) {
-            entity.setCategory(incoming.getCategory());
-        }
-        if (incoming.getCategoryKey() != null && !incoming.getCategoryKey().isBlank()) {
-            entity.setCategoryKey(incoming.getCategoryKey());
-        }
-        if (incoming.getImg() != null && !incoming.getImg().isBlank()) {
-            entity.setImg(incoming.getImg());
-        }
-        if (incoming.getLabels() != null && !incoming.getLabels().isBlank()) {
-            entity.setLabels(incoming.getLabels());
-        }
-        if (incoming.getDescription() != null && !incoming.getDescription().isBlank()) {
-            entity.setDescription(incoming.getDescription());
-        }
-        if (incoming.getPrice() > 0) {
-            entity.setPrice(incoming.getPrice());
-        }
-        if (incoming.getTranslations() != null) {
-            entity.setTranslations(incoming.getTranslations());
-        }
-
-        return productRepository.saveAndFlush(entity);
-    }
-
-    // ---------------------------
-    // ✅ CORE: translations[] içinden lang’e göre seçip Product entity’yi doldurur
-    // ---------------------------
     @SuppressWarnings("unchecked")
     private void localizeCart(ShoppingCart cart, String acceptLanguage) {
-        if (cart == null || cart.getProducts() == null || cart.getProducts().isEmpty()) return;
+        if (cart == null || cart.getCartItems() == null || cart.getCartItems().isEmpty()) return;
 
         String lang = normalizeLang(acceptLanguage);
 
-        for (Product p : cart.getProducts()) {
+        for (CartItem item : cart.getCartItems()) {
+            Product p = item.getProduct();
             try {
                 HttpHeaders headers = new HttpHeaders();
                 headers.set("Accept-Language", lang);
@@ -247,40 +219,22 @@ public class ShoppingCartService {
                 Map body = resp.getBody();
                 if (body == null) continue;
 
-                // translations list
-                Object translationsObj = body.get("translations");
-                if (!(translationsObj instanceof List)) continue;
-
-                List<Map<String, Object>> translations = (List<Map<String, Object>>) translationsObj;
+                List<Map<String, Object>> translations = (List<Map<String, Object>>) body.get("translations");
                 Map<String, Object> chosen = pickTranslation(translations, lang);
 
-                if (chosen == null) continue;
-
-                Object tTitle = chosen.get("title");
-                Object tDesc = chosen.get("description");
-                Object tCategoryName = chosen.get("categoryName");
-
-                if (tTitle instanceof String s && !s.isBlank()) p.setTitle(s);
-                if (tDesc instanceof String s && !s.isBlank()) p.setDescription(s);
-                if (tCategoryName instanceof String s && !s.isBlank()) p.setCategory(s);
-
-                // categoryKey'yi root'tan al (response’da var)
-                Object categoryKey = body.get("categoryKey");
-                if (categoryKey instanceof String) {
-                    // entity’de alan yoksa ignore (senin entity’de yoktu)
-                    // eğer eklediysen burada set edebilirsin
+                if (chosen != null) {
+                    if (chosen.get("title") instanceof String s && !s.isBlank()) p.setTitle(s);
+                    if (chosen.get("description") instanceof String s && !s.isBlank()) p.setDescription(s);
+                    if (chosen.get("categoryName") instanceof String s && !s.isBlank()) p.setCategory(s);
                 }
-
             } catch (Exception e) {
-                LOGGER.debug("Product-service i18n fetch failed for id={} lang={}: {}",
-                        p.getId(), lang, e.getMessage());
+                System.out.println("Product-service i18n fetch failed for id=" + p.getId() + " err=" + e.getMessage());
             }
         }
     }
 
     private String normalizeLang(String acceptLanguage) {
         if (acceptLanguage == null || acceptLanguage.isBlank()) return "tr";
-        // "en-US,en;q=0.9" -> "en"
         String first = acceptLanguage.split(",")[0].trim();
         if (first.contains("-")) first = first.substring(0, first.indexOf('-'));
         return first.isBlank() ? "tr" : first;
@@ -288,18 +242,16 @@ public class ShoppingCartService {
 
     private Map<String, Object> pickTranslation(List<Map<String, Object>> translations, String lang) {
         if (translations == null || translations.isEmpty()) return null;
+        return translations.stream()
+                .filter(t -> lang.equalsIgnoreCase(String.valueOf(t.get("lang"))))
+                .findFirst()
+                .orElseGet(() -> translations.stream()
+                        .filter(t -> "tr".equalsIgnoreCase(String.valueOf(t.get("lang"))))
+                        .findFirst()
+                        .orElse(translations.get(0)));
+    }
 
-        // 1) exact lang
-        for (Map<String, Object> t : translations) {
-            Object l = t.get("lang");
-            if (l != null && lang.equalsIgnoreCase(l.toString())) return t;
-        }
-        // 2) fallback tr
-        for (Map<String, Object> t : translations) {
-            Object l = t.get("lang");
-            if (l != null && "tr".equalsIgnoreCase(l.toString())) return t;
-        }
-        // 3) first
-        return translations.get(0);
+    public ResponseEntity<Map<String, String>> getShoppingCartPrice(Long shoppingCartId) {
+        return getShoppingCartPrice(shoppingCartId, null);
     }
 }

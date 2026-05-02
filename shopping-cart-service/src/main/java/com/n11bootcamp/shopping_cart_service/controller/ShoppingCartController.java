@@ -86,8 +86,16 @@ public class ShoppingCartController  {
     }
 
     @DeleteMapping("{id}")
-    public ResponseEntity<String> deleteCartById(@PathVariable("id") Long shoppingCartId) {
-        return shoppingCartService.deleteCartById(shoppingCartId);
+    public ResponseEntity<ShoppingCart> removeProductFromCart(
+            @RequestHeader(value = "X-User-Name", required = false) String username,
+            @PathVariable("id") Long productId) {
+        return shoppingCartService.removeProductFromMyCart(username, productId);
+    }
+
+    @DeleteMapping("/clear")
+    public ResponseEntity<ShoppingCart> clearMyCart(
+            @RequestHeader(value = "X-User-Name", required = false) String username) {
+        return shoppingCartService.clearMyCart(username);
     }
 
     @DeleteMapping("/deleteAll")

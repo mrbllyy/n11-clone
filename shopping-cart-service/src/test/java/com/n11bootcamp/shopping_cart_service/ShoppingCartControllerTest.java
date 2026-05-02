@@ -2,6 +2,7 @@ package com.n11bootcamp.shopping_cart_service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.n11bootcamp.shopping_cart_service.controller.ShoppingCartController;
+import com.n11bootcamp.shopping_cart_service.entity.CartItem;
 import com.n11bootcamp.shopping_cart_service.entity.Product;
 import com.n11bootcamp.shopping_cart_service.entity.ShoppingCart;
 import com.n11bootcamp.shopping_cart_service.service.ShoppingCartService;
@@ -64,7 +65,7 @@ public class ShoppingCartControllerTest {
         ShoppingCart cart = new ShoppingCart();
         cart.setId(1L);
         cart.setShoppingCartName("TestCart");
-        cart.setProducts(Collections.singleton(p1));
+        cart.getCartItems().add(new CartItem(cart, p1, 1));
 
         Mockito.when(shoppingCartService.addProducts(eq(1L), any(List.class)))
                 .thenReturn(ResponseEntity.ok(cart));
@@ -74,7 +75,7 @@ public class ShoppingCartControllerTest {
                 .content(objectMapper.writeValueAsString(Collections.singletonList(p1))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1L))
-                .andExpect(jsonPath("$.products[0].title").value("Product 1"));
+                .andExpect(jsonPath("$.cartItems[0].product.title").value("Product 1"));
     }
 
     @Test
@@ -86,7 +87,7 @@ public class ShoppingCartControllerTest {
         ShoppingCart cart = new ShoppingCart();
         cart.setId(1L);
         cart.setShoppingCartName("bilal");
-        cart.setProducts(Collections.singleton(p1));
+        cart.getCartItems().add(new CartItem(cart, p1, 1));
 
         Mockito.when(shoppingCartService.addProductById("bilal", 3L))
                 .thenReturn(ResponseEntity.ok(cart));
@@ -95,7 +96,7 @@ public class ShoppingCartControllerTest {
                 .header("X-User-Name", "bilal"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.shoppingCartName").value("bilal"))
-                .andExpect(jsonPath("$.products[0].id").value(3L));
+                .andExpect(jsonPath("$.cartItems[0].product.id").value(3L));
     }
 
     @Test
@@ -107,7 +108,7 @@ public class ShoppingCartControllerTest {
         ShoppingCart cart = new ShoppingCart();
         cart.setId(1L);
         cart.setShoppingCartName("bilal");
-        cart.setProducts(Collections.singleton(p1));
+        cart.getCartItems().add(new CartItem(cart, p1, 1));
 
         Mockito.when(shoppingCartService.getMyCart("bilal", "tr"))
                 .thenReturn(ResponseEntity.ok(cart));
@@ -117,6 +118,6 @@ public class ShoppingCartControllerTest {
                 .header("Accept-Language", "tr"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.shoppingCartName").value("bilal"))
-                .andExpect(jsonPath("$.products[0].id").value(3L));
+                .andExpect(jsonPath("$.cartItems[0].product.id").value(3L));
     }
 }

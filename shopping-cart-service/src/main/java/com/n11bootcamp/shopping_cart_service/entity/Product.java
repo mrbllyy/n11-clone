@@ -33,9 +33,6 @@ public class Product {
     @JsonProperty("translations")
     private JsonNode translations;
 
-    @ManyToMany(mappedBy = "products")
-    private Set<ShoppingCart> shoppingCarts;
-
     @PrePersist
     @PreUpdate
     private void fillRequiredFields() {
@@ -111,7 +108,4 @@ public class Product {
     public JsonNode getTranslations() { return translations; }
     public void setTranslations(JsonNode translations) { this.translations = translations; }
 
-    @JsonIgnore
-    public Set<ShoppingCart> getShoppingCarts() { return shoppingCarts; }
-    public void setShoppingCarts(Set<ShoppingCart> shoppingCarts) { this.shoppingCarts = shoppingCarts; }
 }
