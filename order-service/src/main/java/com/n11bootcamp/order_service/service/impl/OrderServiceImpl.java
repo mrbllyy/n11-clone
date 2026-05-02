@@ -8,6 +8,7 @@ import com.n11bootcamp.order_service.entity.OrderDetails;
 import com.n11bootcamp.order_service.entity.OrderItem;
 import com.n11bootcamp.order_service.entity.OrderStatus;
 import com.n11bootcamp.order_service.event.OrderCreatedEvent;
+import com.n11bootcamp.order_service.exception.InvalidOrderRequestException;
 import com.n11bootcamp.order_service.repository.OrderRepository;
 import com.n11bootcamp.order_service.saga.PaymentCardStore;
 import com.n11bootcamp.order_service.service.OrderService;
@@ -141,13 +142,17 @@ public class OrderServiceImpl implements OrderService {
             cardForStore.setCardNumber(request.getPaymentCard().getCardNumber());
             cardForStore.setCvc(request.getPaymentCard().getCvv());
             
-            // "MM/YY" formatını ayır
+            // "MM/YY" formatını ayır ve doğrula
             String expireDate = request.getPaymentCard().getExpireDate();
-            if (expireDate != null && expireDate.contains("/")) {
-                String[] parts = expireDate.split("/");
-                cardForStore.setExpireMonth(parts[0]);
-                cardForStore.setExpireYear(parts[1].length() == 2 ? "20" + parts[1] : parts[1]);
+            if (expireDate == null || !expireDate.contains("/") || expireDate.length() < 5) {
+                throw new InvalidOrderRequestException("Geçersiz kart son kullanma tarihi formatı! Beklenen: MM/YY, Gelen: " + expireDate);
             }
+            String[] parts = expireDate.split("/");
+            if (parts.length != 2) {
+                throw new InvalidOrderRequestException("Geçersiz kart son kullanma tarihi formatı! Beklenen: MM/YY, Gelen: " + expireDate);
+            }
+            cardForStore.setExpireMonth(parts[0]);
+            cardForStore.setExpireYear(parts[1].length() == 2 ? "20" + parts[1] : parts[1]);
             
             paymentCardStore.put(savedOrder.getId(), cardForStore);
             LOGGER.info("Kart bilgisi RAM store'a kaydedildi. orderId={}", savedOrder.getId());

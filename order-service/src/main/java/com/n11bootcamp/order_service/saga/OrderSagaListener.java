@@ -12,6 +12,7 @@ import com.n11bootcamp.order_service.entity.OrderStatus;
 import com.n11bootcamp.order_service.repository.OrderRepository;
 import com.n11bootcamp.order_service.service.PaymentServiceClient;
 import com.n11bootcamp.order_service.service.StockServiceClient;
+import com.n11bootcamp.order_service.service.TelegramService;
 import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
@@ -29,15 +30,18 @@ public class OrderSagaListener {
     private final PaymentServiceClient paymentServiceClient;
     private final StockServiceClient stockServiceClient;
     private final PaymentCardStore paymentCardStore;
+    private final TelegramService telegramService;
 
     public OrderSagaListener(OrderRepository orderRepository,
                              PaymentServiceClient paymentServiceClient,
                              StockServiceClient stockServiceClient,
-                             PaymentCardStore paymentCardStore) {
+                             PaymentCardStore paymentCardStore,
+                             TelegramService telegramService) {
         this.orderRepository = orderRepository;
         this.paymentServiceClient = paymentServiceClient;
         this.stockServiceClient = stockServiceClient;
         this.paymentCardStore = paymentCardStore;
+        this.telegramService = telegramService;
     }
 
     @Transactional
@@ -77,8 +81,9 @@ public class OrderSagaListener {
         }
 
         if (paymentResponse == null || !paymentResponse.isSuccess()) {
-            LOGGER.warn("[SAGA] Payment rejected. orderId={}, message={}",
-                    order.getId(), paymentResponse != null ? paymentResponse.getMessage() : "null response");
+            String msg = paymentResponse != null ? paymentResponse.getMessage() : "null response";
+            LOGGER.warn("[SAGA] Payment rejected. orderId={}, message={}", order.getId(), msg);
+            telegramService.sendMessage("💳 *PAYMENT REJECTED* 💳\nOrder ID: " + order.getId() + "\nMessage: " + msg);
             markOrderCancelledAndReleaseStock(order);
             return;
         }
@@ -117,6 +122,7 @@ public class OrderSagaListener {
         order.setStatus(OrderStatus.CANCELLED);
         orderRepository.save(order);
         LOGGER.info("[SAGA] Order cancelled because stock was rejected. orderId={}", order.getId());
+        telegramService.sendMessage("❌ *STOCK REJECTED* ❌\nOrder ID: " + order.getId() + "\nReason: " + event.getMessage());
     }
 
     private PaymentRequest toPaymentRequest(Order order) {
