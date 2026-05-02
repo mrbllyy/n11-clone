@@ -12,6 +12,7 @@ import com.n11bootcamp.order_service.repository.OrderRepository;
 import com.n11bootcamp.order_service.saga.PaymentCardStore;
 import com.n11bootcamp.order_service.service.OrderService;
 import com.n11bootcamp.order_service.service.PaymentServiceClient;
+import com.n11bootcamp.order_service.service.ProductServiceClient;
 import com.n11bootcamp.order_service.service.StockServiceClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +26,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -33,29 +35,30 @@ public class OrderServiceImpl implements OrderService {
     private static final Logger LOGGER = LoggerFactory.getLogger(OrderServiceImpl.class);
 
     private final OrderRepository orderRepository;
-    private final PaymentServiceClient paymentServiceClient; // şu an createOrder içinde kullanılmıyor ama dursun
-    private final StockServiceClient stockServiceClient;     // aynı şekilde
+    private final PaymentServiceClient paymentServiceClient;
+    private final StockServiceClient stockServiceClient;
+    private final ProductServiceClient productServiceClient;
     private final ApplicationEventPublisher publisher;
     private final RabbitTemplate rabbitTemplate;
     private final PaymentCardStore paymentCardStore;
 
-    // stock-service ile ortak exchange
     @Value("${stock.rabbit.exchange}")
     private String stockExchange;
 
-    // Order -> Stock: rezerv isteği için routing key
     @Value("${stock.rabbit.reserveRequestedRoutingKey}")
     private String stockReserveRequestedRoutingKey;
 
     public OrderServiceImpl(OrderRepository orderRepository,
                             PaymentServiceClient paymentServiceClient,
                             StockServiceClient stockServiceClient,
+                            ProductServiceClient productServiceClient,
                             ApplicationEventPublisher publisher,
                             RabbitTemplate rabbitTemplate,
                             PaymentCardStore paymentCardStore) {
         this.orderRepository = orderRepository;
         this.paymentServiceClient = paymentServiceClient;
         this.stockServiceClient = stockServiceClient;
+        this.productServiceClient = productServiceClient;
         this.publisher = publisher;
         this.rabbitTemplate = rabbitTemplate;
         this.paymentCardStore = paymentCardStore;
@@ -65,17 +68,34 @@ public class OrderServiceImpl implements OrderService {
     @Transactional
     public OrderResponse createOrder(CreateOrderRequest request) {
 
-        // 1️⃣ Order entity oluştur → CREATED
+        // 1️⃣ Ürün bilgilerini tamamla (İsim ve Fiyat)
+        for (CreateOrderRequest.OrderItemDto dto : request.getItems()) {
+            try {
+                Map<String, Object> product = productServiceClient.getProductById(dto.getProductId());
+                if (product != null) {
+                    dto.setProductName((String) product.get("title"));
+                    Object priceObj = product.get("price");
+                    if (priceObj instanceof Number) {
+                        dto.setPrice(((Number) priceObj).doubleValue());
+                    }
+                }
+            } catch (Exception e) {
+                LOGGER.error("Product info could not be fetched for productId={}: {}", dto.getProductId(), e.getMessage());
+                throw new RuntimeException("Ürün bilgileri alınamadı: " + dto.getProductId());
+            }
+        }
+
+        // 2️⃣ Order entity oluştur → CREATED
         Order order = new Order();
         order.setUsername(request.getUsername());
         order.setStatus(OrderStatus.CREATED);
         order.setTotalPrice(
                 request.getItems().stream()
-                        .mapToDouble(i -> i.getPrice() * i.getQuantity())
+                        .mapToDouble(i -> (i.getPrice() != null ? i.getPrice() : 0.0) * i.getQuantity())
                         .sum()
         );
 
-        // 1.1️⃣ OrderItem mapping
+        // 2.1️⃣ OrderItem mapping
         List<OrderItem> items = request.getItems().stream().map(dto -> {
             OrderItem item = new OrderItem();
             item.setProductId(dto.getProductId());
@@ -87,88 +107,76 @@ public class OrderServiceImpl implements OrderService {
         }).collect(Collectors.toList());
         order.setItems(items);
 
-        // 1.2️⃣ OrderDetails mapping (Checkout bilgileri)
+        // 2.2️⃣ OrderDetails mapping (AddressInfo'dan)
         OrderDetails details = new OrderDetails();
-        details.setFirstName(request.getFirstName());
-        details.setLastName(request.getLastName());
-        details.setStreetAddress(request.getStreetAddress());
-        details.setCity(request.getCity());
-        details.setCountry(request.getCountry());
-        details.setPhone(request.getPhone());
-        details.setEmail(request.getEmail());
+        if (request.getAddressInfo() != null) {
+            String fullName = request.getAddressInfo().getFullName();
+            if (fullName != null && fullName.contains(" ")) {
+                int firstSpace = fullName.indexOf(" ");
+                details.setFirstName(fullName.substring(0, firstSpace));
+                details.setLastName(fullName.substring(firstSpace + 1));
+            } else {
+                details.setFirstName(fullName);
+                details.setLastName("");
+            }
+            details.setStreetAddress(request.getAddressInfo().getFullAddress());
+            details.setCity(request.getAddressInfo().getCity());
+            details.setDistrict(request.getAddressInfo().getDistrict());
+            details.setPhone(request.getAddressInfo().getPhone());
+            details.setCountry("TR"); // Default veya request'ten alınabilir
+            details.setEmail("user@example.com"); // Username'den veya request'ten alınabilir
+        }
+        details.setOrder(order);
         order.setOrderDetails(details);
 
-        // 1.3️⃣ Order DB'ye CREATED olarak kaydet
+        // 2.3️⃣ Order DB'ye kaydet
         Order savedOrder = orderRepository.save(order);
         LOGGER.info("Order CREATED kaydedildi. orderId={}, username={}, totalPrice={}",
                 savedOrder.getId(), savedOrder.getUsername(), savedOrder.getTotalPrice());
 
-        // 1.4️⃣ Kart bilgisini RAM üzerinde saga için sakla (DB'ye yazmıyoruz!)
-        if (request.getCard() != null) {
+        // 2.4️⃣ Kart bilgisini RAM store'a sakla
+        if (request.getPaymentCard() != null) {
             PaymentRequest.Card cardForStore = new PaymentRequest.Card();
-            cardForStore.setCardHolderName(request.getCard().getCardHolderName());
-            cardForStore.setCardNumber(request.getCard().getCardNumber());
-            cardForStore.setExpireMonth(request.getCard().getExpireMonth());
-            cardForStore.setExpireYear(request.getCard().getExpireYear());
-            cardForStore.setCvc(request.getCard().getCvc());
-
+            cardForStore.setCardHolderName(request.getPaymentCard().getCardHolderName());
+            cardForStore.setCardNumber(request.getPaymentCard().getCardNumber());
+            cardForStore.setCvc(request.getPaymentCard().getCvv());
+            
+            // "MM/YY" formatını ayır
+            String expireDate = request.getPaymentCard().getExpireDate();
+            if (expireDate != null && expireDate.contains("/")) {
+                String[] parts = expireDate.split("/");
+                cardForStore.setExpireMonth(parts[0]);
+                cardForStore.setExpireYear(parts[1].length() == 2 ? "20" + parts[1] : parts[1]);
+            }
+            
             paymentCardStore.put(savedOrder.getId(), cardForStore);
             LOGGER.info("Kart bilgisi RAM store'a kaydedildi. orderId={}", savedOrder.getId());
-        } else {
-            LOGGER.warn("CreateOrderRequest.card null → ödeme sırasında kart bulunamayabilir. orderId={}",
-                    savedOrder.getId());
         }
 
-        // 2️⃣ Saga başlangıcı: StockReserveRequestedEvent yayınla
+        // 3️⃣ Saga: StockReserveRequestedEvent yayınla
         StockReserveRequestedEvent eventPayload = new StockReserveRequestedEvent();
         eventPayload.setOrderId(savedOrder.getId());
         eventPayload.setUsername(savedOrder.getUsername());
-
-        List<StockReserveRequestedEvent.Item> evItems = new ArrayList<>();
-        for (OrderItem it : savedOrder.getItems()) {
-            evItems.add(new StockReserveRequestedEvent.Item(
-                    it.getProductId(),
-                    it.getQuantity()
-            ));
-        }
-        eventPayload.setItems(evItems);
-
-        LOGGER.info("StockReserveRequestedEvent publish ediliyor. exchange={}, routingKey={}, payload={}",
-                stockExchange, stockReserveRequestedRoutingKey, eventPayload);
+        eventPayload.setItems(savedOrder.getItems().stream()
+                .map(it -> new StockReserveRequestedEvent.Item(it.getProductId(), it.getQuantity()))
+                .collect(Collectors.toList()));
 
         publishStockReserveAfterCommit(eventPayload);
 
-        // 2.1️⃣ (İsteğe bağlı) Spring içi event publish (senin eski yapın)
-        OrderCreatedEvent springEvent = new OrderCreatedEvent();
-        springEvent.setOrderId(savedOrder.getId());
-        springEvent.setUsername(savedOrder.getUsername());
-        springEvent.setTotalPrice(savedOrder.getTotalPrice());
-        springEvent.setItems(savedOrder.getItems().stream().map(item -> {
-            OrderCreatedEvent.OrderItem oi = new OrderCreatedEvent.OrderItem();
-            oi.setProductId(item.getProductId());
-            oi.setProductName(item.getProductName());
-            oi.setPrice(item.getPrice());
-            oi.setQuantity(item.getQuantity());
-            return oi;
-        }).collect(Collectors.toList()));
-        publisher.publishEvent(springEvent);
-
-        // 3️⃣ Şu anda CREATED durumunu döneriz.
+        // 4️⃣ Response dön
         OrderResponse response = new OrderResponse();
         response.setOrderId(savedOrder.getId());
         response.setUsername(savedOrder.getUsername());
-        response.setStatus(savedOrder.getStatus().name()); // CREATED
+        response.setStatus(savedOrder.getStatus().name());
         response.setTotalPrice(savedOrder.getTotalPrice());
-        response.setItems(
-                savedOrder.getItems().stream().map(item -> {
-                    OrderResponse.OrderItemResponse i = new OrderResponse.OrderItemResponse();
-                    i.setProductId(item.getProductId());
-                    i.setProductName(item.getProductName());
-                    i.setPrice(item.getPrice());
-                    i.setQuantity(item.getQuantity());
-                    return i;
-                }).collect(Collectors.toList())
-        );
+        response.setItems(savedOrder.getItems().stream().map(item -> {
+            OrderResponse.OrderItemResponse i = new OrderResponse.OrderItemResponse();
+            i.setProductId(item.getProductId());
+            i.setProductName(item.getProductName());
+            i.setPrice(item.getPrice());
+            i.setQuantity(item.getQuantity());
+            return i;
+        }).collect(Collectors.toList()));
 
         return response;
     }
@@ -178,7 +186,6 @@ public class OrderServiceImpl implements OrderService {
             publishStockReserve(eventPayload);
             return;
         }
-
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
@@ -188,86 +195,42 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private void publishStockReserve(StockReserveRequestedEvent eventPayload) {
-        rabbitTemplate.convertAndSend(
-                stockExchange,
-                stockReserveRequestedRoutingKey,
-                eventPayload
-        );
+        rabbitTemplate.convertAndSend(stockExchange, stockReserveRequestedRoutingKey, eventPayload);
     }
 
     @Override
     public List<OrderResponse> findAllOrders() {
-        return orderRepository.findAll().stream().map(order -> {
-            OrderResponse response = new OrderResponse();
-            response.setOrderId(order.getId());
-            response.setUsername(order.getUsername());
-            response.setStatus(order.getStatus().name());
-            response.setTotalPrice(order.getTotalPrice());
-            response.setItems(
-                    order.getItems().stream().map(item -> {
-                        OrderResponse.OrderItemResponse i = new OrderResponse.OrderItemResponse();
-                        i.setProductId(item.getProductId());
-                        i.setProductName(item.getProductName());
-                        i.setPrice(item.getPrice());
-                        i.setQuantity(item.getQuantity());
-                        return i;
-                    }).collect(Collectors.toList())
-            );
-            return response;
-        }).collect(Collectors.toList());
+        return orderRepository.findAll().stream().map(this::mapToOrderResponse).collect(Collectors.toList());
     }
 
     @Override
     public OrderResponse getOrderById(Long orderId) {
-        Order order = orderRepository.findById(orderId)
+        return orderRepository.findById(orderId)
+                .map(this::mapToOrderResponse)
                 .orElseThrow(() -> new RuntimeException("Order not found"));
-
-        OrderResponse response = new OrderResponse();
-        response.setOrderId(order.getId());
-        response.setUsername(order.getUsername());
-        response.setStatus(order.getStatus().name());
-        response.setTotalPrice(order.getTotalPrice());
-        response.setItems(
-                order.getItems().stream().map(item -> {
-                    OrderResponse.OrderItemResponse i = new OrderResponse.OrderItemResponse();
-                    i.setProductId(item.getProductId());
-                    i.setProductName(item.getProductName());
-                    i.setPrice(item.getPrice());
-                    i.setQuantity(item.getQuantity());
-                    return i;
-                }).collect(Collectors.toList())
-        );
-        return response;
     }
 
     @Override
     public List<OrderResponse> findOrdersByUsername(String username) {
-        List<Order> orders;
-        try {
-            orders = orderRepository.findByUsername(username);
-        } catch (Throwable t) {
-            orders = orderRepository.findAll().stream()
-                    .filter(o -> username != null && username.equals(o.getUsername()))
-                    .collect(Collectors.toList());
-        }
+        return orderRepository.findByUsername(username).stream()
+                .map(this::mapToOrderResponse)
+                .collect(Collectors.toList());
+    }
 
-        return orders.stream().map(order -> {
-            OrderResponse response = new OrderResponse();
-            response.setOrderId(order.getId());
-            response.setUsername(order.getUsername());
-            response.setStatus(order.getStatus().name());
-            response.setTotalPrice(order.getTotalPrice());
-            response.setItems(
-                    order.getItems().stream().map(item -> {
-                        OrderResponse.OrderItemResponse i = new OrderResponse.OrderItemResponse();
-                        i.setProductId(item.getProductId());
-                        i.setProductName(item.getProductName());
-                        i.setPrice(item.getPrice());
-                        i.setQuantity(item.getQuantity());
-                        return i;
-                    }).collect(Collectors.toList())
-            );
-            return response;
-        }).collect(Collectors.toList());
+    private OrderResponse mapToOrderResponse(Order order) {
+        OrderResponse res = new OrderResponse();
+        res.setOrderId(order.getId());
+        res.setUsername(order.getUsername());
+        res.setStatus(order.getStatus().name());
+        res.setTotalPrice(order.getTotalPrice());
+        res.setItems(order.getItems().stream().map(item -> {
+            OrderResponse.OrderItemResponse i = new OrderResponse.OrderItemResponse();
+            i.setProductId(item.getProductId());
+            i.setProductName(item.getProductName());
+            i.setPrice(item.getPrice());
+            i.setQuantity(item.getQuantity());
+            return i;
+        }).collect(Collectors.toList()));
+        return res;
     }
 }
