@@ -257,6 +257,16 @@ services:
         condition: service_healthy
     networks:
       - n11-network
+      
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - n11-network
 
 volumes:
   user_db_data:
