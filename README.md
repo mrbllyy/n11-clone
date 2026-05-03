@@ -114,7 +114,7 @@ BackendServices -.-> Prometheus
 
 1. Projeyi klonlayın:
 ```bash
-git clone https://github.com/bilal/n11-clone.git
+git clone https://github.com/mrbllyy/n11-clone.git
 cd n11-clone
 ```
 
@@ -129,6 +129,7 @@ docker compose up -d
 ```
 
 ### Erişim Noktaları
+- **Frontend Repository:** [n11-clone-react](https://github.com/mrbllyy/n11-clone-react)
 - **Gateway / API:** `http://localhost:8763`
 - **Swagger UI:** `http://localhost:8763/swagger-ui.html` (Tüm mikroservis dökümanlarını içerir)
 - **Eureka Dashboard:** `http://localhost:8761`
