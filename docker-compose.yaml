@@ -38,11 +38,13 @@ services:
     container_name: api-gateway
     ports:
       - "8763:8763"
+      - "5005:5005"
     environment:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
       - REDIS_HOST=redis
       - JWT_SECRET=${JWT_SECRET:-local-dev-jwt-secret-change-me-32-bytes-minimum}
+      - JAVA_TOOL_OPTIONS="-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005"
     depends_on:
       discovery-server:
         condition: service_healthy
@@ -151,12 +153,15 @@ services:
   user-service:
     image: n11-clone/user-service:latest
     container_name: user-service
+    ports:
+      - "5006:5006"
     environment:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
       - SPRING_DATASOURCE_URL=jdbc:postgresql://user-db:5432/user-db
       - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-postgres}
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-1234}
+      - JAVA_TOOL_OPTIONS="-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5006"
     depends_on:
       discovery-server:
         condition: service_healthy
@@ -168,12 +173,15 @@ services:
   product-service:
     image: n11-clone/product-service:latest
     container_name: product-service
+    ports:
+      - "5007:5007"
     environment:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
       - SPRING_DATASOURCE_URL=jdbc:postgresql://product-db:5432/product-db
       - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-postgres}
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-1234}
+      - JAVA_TOOL_OPTIONS="-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5007"
     depends_on:
       discovery-server:
         condition: service_healthy
@@ -185,12 +193,15 @@ services:
   shopping-cart-service:
     image: n11-clone/shopping-cart-service:latest
     container_name: shopping-cart-service
+    ports:
+      - "5008:5008"
     environment:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
       - SPRING_DATASOURCE_URL=jdbc:postgresql://cart-db:5432/cart-db
       - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-postgres}
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-1234}
+      - JAVA_TOOL_OPTIONS="-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5008"
     depends_on:
       discovery-server:
         condition: service_healthy
@@ -202,6 +213,8 @@ services:
   order-service:
     image: n11-clone/order-service:latest
     container_name: order-service
+    ports:
+      - "5009:5009"
     environment:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
@@ -211,6 +224,7 @@ services:
       - RABBIT_HOST=rabbitmq
       - RABBIT_USER=${RABBIT_USER:-guest}
       - RABBIT_PASSWORD=${RABBIT_PASSWORD:-guest}
+      - JAVA_TOOL_OPTIONS="-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5009"
     depends_on:
       discovery-server:
         condition: service_healthy
@@ -226,10 +240,13 @@ services:
   payment-service:
     image: n11-clone/payment-service:latest
     container_name: payment-service
+    ports:
+      - "5010:5010"
     environment:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
       - PAYMENT_MOCK_FORCE_FAILURE=false
+      - JAVA_TOOL_OPTIONS="-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5010"
     depends_on:
       discovery-server:
         condition: service_healthy
@@ -239,6 +256,8 @@ services:
   stock-service:
     image: n11-clone/stock-service:latest
     container_name: stock-service
+    ports:
+      - "5011:5011"
     environment:
       - CONFIG_URI=http://config-server:8762
       - EUREKA_URI=http://discovery-server:8761/eureka
@@ -248,6 +267,7 @@ services:
       - RABBIT_HOST=rabbitmq
       - RABBIT_USER=${RABBIT_USER:-guest}
       - RABBIT_PASSWORD=${RABBIT_PASSWORD:-guest}
+      - JAVA_TOOL_OPTIONS="-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5011"
     depends_on:
       discovery-server:
         condition: service_healthy
@@ -255,6 +275,16 @@ services:
         condition: service_started
       rabbitmq:
         condition: service_healthy
+    networks:
+      - n11-network
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
     networks:
       - n11-network
 
